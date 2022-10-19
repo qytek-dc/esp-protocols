@@ -77,6 +77,33 @@ static inline command_result generic_get_string(CommandableIf *t, const std::str
     }, timeout_ms);
 }
 
+static inline command_result generic_get_buffer(CommandableIf *t, const std::string &command, std::string_view &output, uint32_t timeout_ms = 500)
+{
+    ESP_LOGV(TAG, "%s", __func__ );
+    return t->command(command, [&](uint8_t *data, size_t len) {
+        size_t pos = 0;
+        std::string_view response((char *)data, len);
+        output = response;
+        ESP_LOGD(TAG, "Response: %.*s\n", (int)response.length(), response.data());
+        while ((pos = response.find('\n')) != std::string::npos) {
+            std::string_view token = response.substr(0, pos);
+            for (auto it = token.end() - 1; it > token.begin(); it--) // strip trailing CR or LF
+                if (*it == '\r' || *it == '\n') {
+                    token.remove_suffix(1);
+                }
+            ESP_LOGV(TAG, "Token: {%.*s}\n", static_cast<int>(token.size()), token.data());
+
+            if (token.find("OK") != std::string::npos) {
+                return command_result::OK;
+            } else if (token.find("ERROR") != std::string::npos) {
+                return command_result::FAIL;
+            }
+            response = response.substr(pos + 1);
+        }
+        return command_result::TIMEOUT;
+    }, timeout_ms);
+}
+
 static inline command_result generic_get_string(CommandableIf *t, const std::string &command, std::string &output, uint32_t timeout_ms = 500)
 {
     ESP_LOGV(TAG, "%s", __func__ );
@@ -88,6 +115,16 @@ static inline command_result generic_get_string(CommandableIf *t, const std::str
     return ret;
 }
 
+static inline command_result generic_get_buffer(CommandableIf *t, const std::string &command, std::string &output, uint32_t timeout_ms = 500)
+{
+    ESP_LOGV(TAG, "%s", __func__ );
+    std::string_view out;
+    auto ret = generic_get_buffer(t, command, out, timeout_ms);
+    if (ret == command_result::OK) {
+        output = out;
+    }
+    return ret;
+}
 
 static inline command_result generic_command_common(CommandableIf *t, const std::string &command, uint32_t timeout = 500)
 {
@@ -386,6 +423,13 @@ command_result at(CommandableIf *t, const std::string &cmd, std::string &out, in
     ESP_LOGV(TAG, "%s", __func__ );
     std::string at_command = cmd + "\r";
     return generic_get_string(t, at_command, out, timeout);
+}
+
+command_result at_buf(CommandableIf *t, const std::string &cmd, std::string &out, int timeout = 500)
+{
+    ESP_LOGV(TAG, "%s", __func__ );
+    std::string at_command = cmd + "\r";
+    return generic_get_buffer(t, at_command, out, timeout);
 }
 
 command_result get_signal_quality(CommandableIf *t, int &rssi, int &ber)

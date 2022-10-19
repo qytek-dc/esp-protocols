@@ -165,6 +165,20 @@ extern "C" esp_err_t esp_modem_at(esp_modem_dce_t *dce_wrap, const char *at, cha
     return ret;
 }
 
+extern "C" esp_err_t esp_modem_at_buf(esp_modem_dce_t *dce_wrap, const char *at, char *p_out, int timeout)
+{
+    if (dce_wrap == nullptr || dce_wrap->dce == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::string out;
+    std::string at_str(at);
+    auto ret = command_response_to_esp_err(dce_wrap->dce->at_buf(at_str, out, timeout));
+    if ((p_out != NULL) && (!out.empty())) {
+        strlcpy(p_out, out.c_str(), 512);  // ESP_MODEM_C_API_STR_MAX);
+    }
+    return ret;
+}
+
 extern "C" esp_err_t esp_modem_get_signal_quality(esp_modem_dce_t *dce_wrap, int *rssi, int *ber)
 {
     if (dce_wrap == nullptr || dce_wrap->dce == nullptr) {

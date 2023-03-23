@@ -27,10 +27,16 @@ namespace esp_modem {
  */
 enum class modem_mode {
     UNDEF,
-    COMMAND_MODE, /*!< Command mode -- the modem is supposed to send AT commands in this mode  */
+    COMMAND_MODE, /*!< Command mode -- the modem is supposed to send AT commands in this mode */
     DATA_MODE,    /*!< Data mode -- the modem communicates with network interface on PPP protocol */
-    CMUX_MODE     /*!< CMUX (Multiplex mode) -- Simplified CMUX mode, which creates two virtual terminals,
+    DUAL_MODE,    /*!< Dual mode -- the modem has two real terminals. Data and commands work at the same time */
+    CMUX_MODE,    /*!< CMUX (Multiplex mode) -- Simplified CMUX mode, which creates two virtual terminals,
                    *  assigning one solely to command interface and the other  to the data mode */
+    CMUX_MANUAL_MODE,    /*!< Enter CMUX mode manually -- just creates two virtual terminals */
+    CMUX_MANUAL_EXIT,    /*!< Exits CMUX mode manually -- just destroys two virtual terminals */
+    CMUX_MANUAL_DATA,    /*!< Sets the primary terminal to DATA mode in manual CMUX */
+    CMUX_MANUAL_COMMAND, /*!< Sets the primary terminal to COMMAND mode in manual CMUX */
+    CMUX_MANUAL_SWAP,    /*!< Swaps virtual terminals in manual CMUX mode (primary <-> secondary) */
 };
 
 /**
@@ -74,6 +80,9 @@ public:
      */
     virtual command_result command(const std::string &command, got_line_cb got_line, uint32_t time_ms, const char separator) = 0;
     virtual command_result command(const std::string &command, got_line_cb got_line, uint32_t time_ms) = 0;
+
+    virtual int write(uint8_t *data, size_t len) = 0;
+    virtual void on_read(got_line_cb on_data) = 0;
 };
 
 /**

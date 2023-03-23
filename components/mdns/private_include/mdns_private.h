@@ -14,32 +14,11 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 
-//#define MDNS_ENABLE_DEBUG
-
-#ifdef MDNS_ENABLE_DEBUG
+#ifdef CONFIG_MDNS_ENABLE_DEBUG_PRINTS
+#define MDNS_ENABLE_DEBUG
 #define _mdns_dbg_printf(...) printf(__VA_ARGS__)
-#endif
-
-/** mDNS strict mode: Set this to 1 for the mDNS library to strictly follow the RFC6762:
- * Strict features:
- *   - to do not set original questions in response packets per RFC6762, sec 6
- *
- * The actual configuration is 0, i.e. non-strict mode, since some implementations,
- * such as lwIP mdns resolver (used by standard POSIX API like getaddrinfo, gethostbyname)
- * could not correctly resolve advertised names.
- */
-#ifndef CONFIG_MDNS_STRICT_MODE
-#define MDNS_STRICT_MODE 0
-#else
-#define MDNS_STRICT_MODE 1
-#endif
-
-#if !MDNS_STRICT_MODE
-/* mDNS responders sometimes repeat queries in responses
- * but according to RFC6762, sec 6: Responses MUST NOT contain
- * any item in question field */
-#define  MDNS_REPEAT_QUERY_IN_RESPONSE 1
 #endif
 
 /** Number of predefined interfaces */
@@ -53,6 +32,12 @@
 #define CONFIG_MDNS_PREDEF_NETIF_ETH 0
 #endif
 #define MDNS_MAX_PREDEF_INTERFACES (CONFIG_MDNS_PREDEF_NETIF_STA + CONFIG_MDNS_PREDEF_NETIF_AP + CONFIG_MDNS_PREDEF_NETIF_ETH)
+
+#ifdef CONFIG_LWIP_IPV6_NUM_ADDRESSES
+#define NETIF_IPV6_MAX_NUMS CONFIG_LWIP_IPV6_NUM_ADDRESSES
+#else
+#define NETIF_IPV6_MAX_NUMS 3
+#endif
 
 /** Number of configured interfaces */
 #if MDNS_MAX_PREDEF_INTERFACES > CONFIG_MDNS_MAX_INTERFACES
@@ -110,7 +95,11 @@
 #define MDNS_PACKET_QUEUE_LEN       16                      // Maximum packets that can be queued for parsing
 #define MDNS_ACTION_QUEUE_LEN       16                      // Maximum actions pending to the server
 #define MDNS_TXT_MAX_LEN            1024                    // Maximum string length of text data in TXT record
+#if defined(CONFIG_LWIP_IPV6) && defined(CONFIG_MDNS_RESPOND_REVERSE_QUERIES)
+#define MDNS_NAME_MAX_LEN           (64+4)                  // Need to account for IPv6 reverse queries (64 char address  + ".ip6" )
+#else
 #define MDNS_NAME_MAX_LEN           64                      // Maximum string length of hostname, instance, service and proto
+#endif
 #define MDNS_NAME_BUF_LEN           (MDNS_NAME_MAX_LEN+1)   // Maximum char buffer size to hold hostname, instance, service or proto
 #define MDNS_MAX_PACKET_SIZE        1460                    // Maximum size of mDNS  outgoing packet
 
@@ -358,7 +347,6 @@ typedef struct mdns_tx_packet_s {
 
 typedef struct {
     mdns_pcb_state_t state;
-    struct udp_pcb *pcb;
     mdns_srv_item_t **probe_services;
     uint8_t probe_services_len;
     uint8_t probe_ip;
@@ -399,8 +387,8 @@ typedef struct mdns_server_s {
     const char *hostname;
     const char *instance;
     mdns_srv_item_t *services;
-    SemaphoreHandle_t lock;
     QueueHandle_t action_queue;
+    SemaphoreHandle_t action_sema;
     mdns_tx_packet_t *tx_queue_head;
     mdns_search_once_t *search_once;
     esp_timer_handle_t timer_handle;
@@ -411,7 +399,6 @@ typedef struct {
     union {
         struct {
             char *hostname;
-            TaskHandle_t calling_task;
         } hostname_set;
         char *instance;
         struct {

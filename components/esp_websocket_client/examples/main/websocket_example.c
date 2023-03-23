@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
@@ -32,10 +32,17 @@
 
 #define NO_DATA_TIMEOUT_SEC 5
 
-static const char *TAG = "WEBSOCKET";
+static const char *TAG = "websocket";
 
 static TimerHandle_t shutdown_signal_timer;
 static SemaphoreHandle_t shutdown_sema;
+
+static void log_error_if_nonzero(const char *message, int error_code)
+{
+    if (error_code != 0) {
+        ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+    }
+}
 
 static void shutdown_signaler(TimerHandle_t xTimer)
 {
@@ -71,6 +78,12 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         break;
     case WEBSOCKET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
+        log_error_if_nonzero("HTTP status code",  data->error_handle.esp_ws_handshake_status_code);
+        if (data->error_handle.error_type == WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT) {
+            log_error_if_nonzero("reported from esp-tls", data->error_handle.esp_tls_last_esp_err);
+            log_error_if_nonzero("reported from tls stack", data->error_handle.esp_tls_stack_err);
+            log_error_if_nonzero("captured as transport's socket errno",  data->error_handle.esp_transport_sock_errno);
+        }
         break;
     case WEBSOCKET_EVENT_DATA:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
@@ -99,6 +112,12 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         break;
     case WEBSOCKET_EVENT_ERROR:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
+        log_error_if_nonzero("HTTP status code",  data->error_handle.esp_ws_handshake_status_code);
+        if (data->error_handle.error_type == WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT) {
+            log_error_if_nonzero("reported from esp-tls", data->error_handle.esp_tls_last_esp_err);
+            log_error_if_nonzero("reported from tls stack", data->error_handle.esp_tls_stack_err);
+            log_error_if_nonzero("captured as transport's socket errno",  data->error_handle.esp_transport_sock_errno);
+        }
         break;
     }
 }
@@ -154,9 +173,9 @@ void app_main(void)
     ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "[APP] IDF version: %s", esp_get_idf_version());
     esp_log_level_set("*", ESP_LOG_INFO);
-    esp_log_level_set("WEBSOCKET_CLIENT", ESP_LOG_DEBUG);
-    esp_log_level_set("TRANSPORT_WS", ESP_LOG_DEBUG);
-    esp_log_level_set("TRANS_TCP", ESP_LOG_DEBUG);
+    esp_log_level_set("websocket_client", ESP_LOG_DEBUG);
+    esp_log_level_set("transport_ws", ESP_LOG_DEBUG);
+    esp_log_level_set("trans_tcp", ESP_LOG_DEBUG);
 
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());

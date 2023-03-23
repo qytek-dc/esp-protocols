@@ -29,6 +29,13 @@ class CMux;
 * @{
 */
 
+struct DTE_Command {
+    DTE_Command(const std::string &cmd): data((uint8_t *)cmd.c_str()), len(cmd.length()) {}
+
+    uint8_t *data;
+    size_t len;
+};
+
 /**
  * DTE (Data Terminal Equipment) class
  */
@@ -39,9 +46,12 @@ public:
      * @brief Creates a DTE instance from the terminal
      * @param config DTE config structure
      * @param t unique-ptr to Terminal
+     * @param s unique-ptr to secondary Terminal
      */
     explicit DTE(const esp_modem_dte_config *config, std::unique_ptr<Terminal> t);
     explicit DTE(std::unique_ptr<Terminal> t);
+    explicit DTE(const esp_modem_dte_config *config, std::unique_ptr<Terminal> t, std::unique_ptr<Terminal> s);
+    explicit DTE(std::unique_ptr<Terminal> t, std::unique_ptr<Terminal> s);
 
     ~DTE() = default;
 
@@ -51,7 +61,9 @@ public:
      * @param len Data len to write
      * @return number of bytes written
      */
-    int write(uint8_t *data, size_t len);
+    int write(uint8_t *data, size_t len) override;
+
+    int write(DTE_Command command);
 
     /**
      * @brief Reading from the underlying terminal
@@ -66,6 +78,8 @@ public:
      * @param f Function to be called on data available
      */
     void set_read_cb(std::function<bool(uint8_t *data, size_t len)> f);
+
+    void on_read(got_line_cb on_data) override;
 
     /**
      * @brief Sets DTE error callback
@@ -116,8 +130,8 @@ private:
     Lock internal_lock{};                                   /*!< Locks DTE operations */
     unique_buffer buffer;                                   /*!< DTE buffer */
     std::shared_ptr<CMux> cmux_term;                        /*!< Primary terminal for this DTE */
-    std::shared_ptr<Terminal> command_term;                 /*!< Reference to the terminal used for sending commands */
-    std::shared_ptr<Terminal> data_term;                    /*!< Secondary terminal for this DTE */
+    std::shared_ptr<Terminal> primary_term;                 /*!< Reference to the primary terminal (mostly for sending commands) */
+    std::shared_ptr<Terminal> secondary_term;               /*!< Secondary terminal for this DTE */
     modem_mode mode;                                        /*!< DTE operation mode */
     SignalGroup signal;                                     /*!< Event group used to signal request-response operations */
     command_result result;                                  /*!< Command result of the currently exectuted command */

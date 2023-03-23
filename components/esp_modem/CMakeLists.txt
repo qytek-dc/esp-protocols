@@ -46,3 +46,14 @@ if(${target} STREQUAL "linux")
 endif()
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")
+if(CONFIG_GCOV_ENABLED)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage -fprofile-arcs -ftest-coverage")
+
+
+    MARK_AS_ADVANCED(
+        CMAKE_CXX_FLAGS_COVERAGE
+        CMAKE_C_FLAGS_COVERAGE
+        CMAKE_EXE_LINKER_FLAGS_COVERAGE
+        CMAKE_SHARED_LINKER_FLAGS_COVERAGE )
+endif()

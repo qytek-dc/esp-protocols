@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Unlicense OR CC0-1.0
 import re
 import select
@@ -8,8 +8,11 @@ import subprocess
 import time
 from threading import Event, Thread
 
-import dpkt
-import dpkt.dns
+try:
+    import dpkt
+    import dpkt.dns
+except ImportError:
+    pass
 
 
 def get_dns_query_for_esp(esp_host):
@@ -117,10 +120,11 @@ def test_examples_protocol_mdns(dut):
       2. get the dut host name (and IP address)
       3. check the mdns name is accessible
       4. check DUT output if mdns advertized host is resolved
+      5. check if DUT responds to dig
+      6. check the DUT is searchable via reverse IP lookup
     """
 
-    specific_host = dut.expect(re.compile(
-        b'mdns hostname set to: \[(.*?)\]')).group(1).decode()  # noqa: W605
+    specific_host = dut.expect(r'mdns hostname set to: \[(.*?)\]')[1].decode()
 
     mdns_server_events = {
         'stop': Event(),
@@ -129,9 +133,14 @@ def test_examples_protocol_mdns(dut):
     }
     mdns_responder = Thread(target=mdns_server,
                             args=(str(specific_host), mdns_server_events))
-    ip_address = dut.expect(
-        re.compile(b'IPv4 address:([a-zA-Z0-9]*).*')).group(1).decode()
-    print('Connected to AP with IP: {}'.format(ip_address))
+    ipv4 = dut.expect(r'IPv4 address: (\d+\.\d+\.\d+\.\d+)[^\d]',
+                      timeout=30)[1].decode()
+    ip_addresses = [ipv4]
+    if dut.app.sdkconfig.get('LWIP_IPV6') is True:
+        ipv6_r = r':'.join((r'[0-9a-fA-F]{4}', ) * 8)
+        ipv6 = dut.expect(ipv6_r, timeout=30)[0].decode()
+        ip_addresses.append(ipv6)
+    print('Connected with IP addresses: {}'.format(','.join(ip_addresses)))
     try:
         # 3. check the mdns name is accessible.
         mdns_responder.start()
@@ -162,11 +171,25 @@ def test_examples_protocol_mdns(dut):
         ])
         print('Resolving {} using "dig" succeeded with:\n{}'.format(
             specific_host, dig_output))
-        if not ip_address.encode('utf-8') in dig_output:
+        if not ipv4.encode('utf-8') in dig_output:
             raise ValueError(
                 'Test has failed: Incorrectly resolved DUT hostname using dig'
-                "Output should've contained DUT's IP address:{}".format(
-                    ip_address))
+                "Output should've contained DUT's IP address:{}".format(ipv4))
+        # 6. check the DUT reverse lookup
+        if dut.app.sdkconfig.get('MDNS_RESPOND_REVERSE_QUERIES') is True:
+            for ip_address in ip_addresses:
+                dig_output = subprocess.check_output([
+                    'dig', '+short', '-p', '5353', '@224.0.0.251', '-x',
+                    '{}'.format(ip_address)
+                ])
+                print('Reverse lookup for {} using "dig" succeeded with:\n{}'.
+                      format(ip_address, dig_output))
+                if specific_host not in dig_output.decode():
+                    raise ValueError(
+                        'Test has failed: Incorrectly resolved DUT IP address using dig'
+                        "Output should've contained DUT's name:{}".format(
+                            specific_host))
+
     finally:
         mdns_server_events['stop'].set()
         mdns_responder.join()

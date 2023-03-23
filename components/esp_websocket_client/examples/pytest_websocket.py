@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+# SPDX-FileCopyrightText: 2022-2023 Espressif Systems (Shanghai) CO LTD
 # SPDX-License-Identifier: Unlicense OR CC0-1.0
 import json
 import random
@@ -81,7 +81,7 @@ def test_examples_protocol_websocket(dut):
     def test_close(dut):
         code = dut.expect(
             re.compile(
-                b'WEBSOCKET: Received closed message with code=(\\d*)'))[0]
+                b'websocket: Received closed message with code=(\\d*)'))[0]
         print('Received close frame with code {}'.format(code))
 
     def test_json(dut, websocket):
@@ -101,7 +101,7 @@ def test_examples_protocol_websocket(dut):
         data = json.loads(json_string)
 
         match = dut.expect(
-            re.compile(b'Json=([a-zA-Z0-9]*).*')).group(0).decode()[5:]
+            re.compile(b'Json=({[a-zA-Z0-9]*).*}')).group(0).decode()[5:]
         if match == str(data[0]):
             print('Sent message and received message are equal')
         else:
@@ -122,7 +122,7 @@ def test_examples_protocol_websocket(dut):
             recv_msg = ''
             while len(recv_msg) < msg_len:
                 match = dut.expect(re.compile(
-                    b'Received=([a-zA-Z0-9]*).*')).group(1).decode()
+                    b'Received=([a-zA-Z0-9]*).*\n')).group(1).decode()
                 recv_msg += match
 
             if recv_msg == send_msg:

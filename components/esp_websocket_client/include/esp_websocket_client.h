@@ -15,6 +15,7 @@
 #include "esp_err.h"
 #include "esp_event.h"
 #include <sys/socket.h>
+#include "esp_transport_ws.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,8 +35,34 @@ typedef enum {
     WEBSOCKET_EVENT_DISCONNECTED,   /*!< The connection has been disconnected */
     WEBSOCKET_EVENT_DATA,           /*!< When receiving data from the server, possibly multiple portions of the packet */
     WEBSOCKET_EVENT_CLOSED,         /*!< The connection has been closed cleanly */
+    WEBSOCKET_EVENT_BEFORE_CONNECT, /*!< The event occurs before connecting */
     WEBSOCKET_EVENT_MAX
 } esp_websocket_event_id_t;
+
+/**
+ * @brief Websocket connection error codes propagated via ERROR event
+ */
+typedef enum {
+    WEBSOCKET_ERROR_TYPE_NONE = 0,
+    WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT,
+    WEBSOCKET_ERROR_TYPE_PONG_TIMEOUT,
+    WEBSOCKET_ERROR_TYPE_HANDSHAKE
+} esp_websocket_error_type_t;
+
+/**
+ * @brief Websocket error code structure to be passed as a contextual information into ERROR event
+ */
+typedef struct {
+    /* compatible portion of the struct corresponding to struct esp_tls_last_error */
+    esp_err_t esp_tls_last_esp_err;             /*!< last esp_err code reported from esp-tls component */
+    int       esp_tls_stack_err;                /*!< tls specific error code reported from underlying tls stack */
+    int       esp_tls_cert_verify_flags;        /*!< tls flags reported from underlying tls stack during certificate verification */
+    /* esp-websocket specific structure extension */
+    esp_websocket_error_type_t error_type;
+    int esp_ws_handshake_status_code;           /*!< http status code of the websocket upgrade handshake */
+    /* tcp_transport extension */
+    int       esp_transport_sock_errno;         /*!< errno from the underlying socket */
+} esp_websocket_error_codes_t;
 
 /**
  * @brief Websocket event data
@@ -49,6 +76,7 @@ typedef struct {
     void *user_context;                     /*!< user_data context, from esp_websocket_client_config_t user_data */
     int payload_len;                        /*!< Total payload length, payloads exceeding buffer will be posted through multiple events */
     int payload_offset;                     /*!< Actual offset for the data associated with this event */
+    esp_websocket_error_codes_t error_handle; /*!< esp-websocket error handle including esp-tls errors as well as internal websocket errors */
 } esp_websocket_event_data_t;
 
 /**
@@ -67,12 +95,13 @@ typedef struct {
     const char                  *uri;                       /*!< Websocket URI, the information on the URI can be overrides the other fields below, if any */
     const char                  *host;                      /*!< Domain or IP as string */
     int                         port;                       /*!< Port to connect, default depend on esp_websocket_transport_t (80 or 443) */
-    const char                  *username;                  /*!< Using for Http authentication - Not supported for now */
-    const char                  *password;                  /*!< Using for Http authentication - Not supported for now */
+    const char                  *username;                  /*!< Using for Http authentication, only support basic auth now */
+    const char                  *password;                  /*!< Using for Http authentication */
     const char                  *path;                      /*!< HTTP Path, if not set, default is `/` */
     bool                        disable_auto_reconnect;     /*!< Disable the automatic reconnect function when disconnected */
     void                        *user_context;              /*!< HTTP user data context */
     int                         task_prio;                  /*!< Websocket task priority */
+    const char                 *task_name;                  /*!< Websocket task name */
     int                         task_stack;                 /*!< Websocket task stack */
     int                         buffer_size;                /*!< Websocket buffer size */
     const char                  *cert_pem;                  /*!< Pointer to certificate data in PEM or DER format for server verify (with SSL), default is NULL, not required to verify the server. PEM-format must have a terminating NULL-character. DER-format requires the length to be passed in cert_len. */
@@ -126,6 +155,17 @@ esp_websocket_client_handle_t esp_websocket_client_init(const esp_websocket_clie
 esp_err_t esp_websocket_client_set_uri(esp_websocket_client_handle_t client, const char *uri);
 
 /**
+ * @brief      Set additional websocket headers for the client, when performing this behavior, the headers will replace the old ones
+ * @pre        Must stop the WebSocket client before set headers if the client has been connected
+ *
+ * @param[in]  client  The client
+ * @param headers  additional header strings each terminated with \r\n
+ *
+ * @return     esp_err_t
+ */
+esp_err_t esp_websocket_client_set_headers(esp_websocket_client_handle_t client, const char *headers);
+
+/**
  * @brief      Open the WebSocket connection
  *
  * @param[in]  client  The client
@@ -166,6 +206,18 @@ esp_err_t esp_websocket_client_stop(esp_websocket_client_handle_t client);
 esp_err_t esp_websocket_client_destroy(esp_websocket_client_handle_t client);
 
 /**
+ * @brief      If this API called, WebSocket client will destroy and free all resources at the end of event loop.
+ *
+ *  Notes:
+ *  - After event loop finished, client handle would be dangling and should never be used
+ *
+ * @param[in]  client      The client
+ *
+ * @return     esp_err_t
+ */
+esp_err_t esp_websocket_client_destroy_on_exit(esp_websocket_client_handle_t client);
+
+/**
  * @brief      Write binary data to the WebSocket connection (data send with WS OPCODE=02, i.e. binary)
  *
  * @param[in]  client  The client
@@ -192,6 +244,21 @@ int esp_websocket_client_send_bin(esp_websocket_client_handle_t client, const ch
  *     - (-1) if any errors
  */
 int esp_websocket_client_send_text(esp_websocket_client_handle_t client, const char *data, int len, TickType_t timeout);
+
+/**
+ * @brief      Write opcode data to the WebSocket connection
+ *
+ * @param[in]  client  The client
+ * @param[in]  opcode  The opcode
+ * @param[in]  data    The data
+ * @param[in]  len     The length
+ * @param[in]  timeout Write data timeout in RTOS ticks
+ *
+ * @return
+ *     - Number of data was sent
+ *     - (-1) if any errors
+ */
+int esp_websocket_client_send_with_opcode(esp_websocket_client_handle_t client, ws_transport_opcodes_t opcode, const uint8_t *data, int len, TickType_t timeout);
 
 /**
  * @brief      Close the WebSocket connection in a clean way
